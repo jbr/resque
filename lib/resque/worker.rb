@@ -62,16 +62,11 @@ module Resque
     end
 
     # Workers should be initialized with an array of string queue
-    # names. The order is important: a Worker will check the first
-    # queue given for a job. If none is found, it will check the
-    # second queue name given. If a job is found, it will be
-    # processed. Upon completion, the Worker will again check the
-    # first queue given, and so forth. In this way the queue list
-    # passed to a Worker on startup defines the priorities of queues.
+    # names.  Queues are handled fairly (round robin strategy).
     #
-    # If passed a single "*", this Worker will operate on all queues
-    # in alphabetical order. Queues can be dynamically added or
-    # removed without needing to restart workers using this method.
+    # If passed a single "*", this Worker will operate on all queues.
+    # Queues can be dynamically added or removed without needing to
+    # restart workers using this method.
     def initialize(*queues)
       @queues = queues
       validate_queues
@@ -166,12 +161,21 @@ module Resque
       end
     end
 
+    # Rotates the queues so that the next item after the provided argument
+    # is the first item in the queue list.  This way, all queues get equal
+    # worker love.
+    def rotate_queues_up_to(queue)
+      index = @queues.index queue
+      @queues = @queues.slice(index + 1 .. -1) + @queues.slice(0 .. index)
+    end
+    
     # Attempts to grab a job off one of the provided queues. Returns
     # nil if no job can be found.
     def reserve
       queues.each do |queue|
         log! "Checking #{queue}"
         if job = Resque::Job.reserve(queue)
+          rotate_queues_up_to queue
           log! "Found job on #{queue}"
           return job
         end
@@ -181,10 +185,28 @@ module Resque
     end
 
     # Returns a list of queues to use when searching for a job.
-    # A splat ("*") means you want every queue (in alpha order) - this
+    # A splat ("*") means you want every queue - this
     # can be useful for dynamically adding new queues.
     def queues
-      @queues[0] == "*" ? Resque.queues.sort : @queues
+      if '*' == @queues.first
+        @splat_queues = true
+        @queues = []
+      end
+
+      add_all_queues if @splat_queues
+      @queues
+    end
+    
+    
+    # Adds any queue not yet tracked to this worker's queues.  New
+    # queues are added to the head of the list because fresh queues
+    # deserve attention.
+    def add_all_queues
+      Resque.queues.each do |queue|
+        @queues.unshift queue unless @queues.index queue
+      end
+      
+      @queues
     end
 
     # Not every platform supports fork. Here we do our magic to
