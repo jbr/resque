@@ -24,7 +24,10 @@ module Resque
 
     # Returns an array of all worker objects.
     def self.all
-      redis.smembers(:workers).map { |id| find(id) }
+      if members = redis.smembers(:workers)
+        members.map { |id| find(id) }
+      else []
+      end
     end
 
     # Returns an array of all worker objects currently processing
