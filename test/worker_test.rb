@@ -84,20 +84,38 @@ context "Resque::Worker" do
     assert_equal 0, Resque.size(:blahblah)
   end
 
-  test "processes * queues in alphabetical order" do
+  test "a splat worker has all queues" do
     Resque::Job.create(:high, GoodJob)
     Resque::Job.create(:critical, GoodJob)
     Resque::Job.create(:blahblah, GoodJob)
 
     worker = Resque::Worker.new("*")
-    processed_queues = []
 
-    worker.work(0) do |job|
-      processed_queues << job.queue
-    end
-
-    assert_equal %w( jobs high critical blahblah ).sort, processed_queues
+    assert_equal %w( jobs high critical blahblah ).sort, worker.queues
   end
+  
+  test "a splat worker adds new queues to the front of the queue ring" do
+    Resque::Job.create(:high, GoodJob)
+    worker = Resque::Worker.new("*")
+    assert_equal %w( high jobs ), worker.queues
+
+    Resque::Job.create(:blahblah, GoodJob)
+    assert_equal %w( blahblah high jobs ), worker.queues
+  end
+  
+  test "workers rotate their queue ring after performing a job" do
+    worker = Resque::Worker.new(* %w( a b c d e ))
+    worker.work(0) do
+      assert_equal %w( a b c d e ), worker.queues
+    end
+    
+    Resque::Job.create(:c, GoodJob)
+
+    worker.work(0) do
+      assert_equal %w( d e a b c ), worker.queues
+    end
+  end
+  
 
   test "has a unique id" do
     assert_equal "#{`hostname`.chomp}:#{$$}:jobs", @worker.to_s

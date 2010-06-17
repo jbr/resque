@@ -202,7 +202,7 @@ module Resque
     # queues are added to the head of the list because fresh queues
     # deserve attention.
     def add_all_queues
-      Resque.queues.each do |queue|
+      Resque.queues.sort.reverse.each do |queue|
         @queues.unshift queue unless @queues.index queue
       end
       
